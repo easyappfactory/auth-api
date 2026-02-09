@@ -273,7 +273,7 @@ class AuthController(
         response: HttpServletResponse,
         @RequestBody req: RefreshAccessTokenRequestDto?,
     ): SuccessResponse<RefreshAccessTokenResponseDto> {
-        
+
         val currentRefreshToken : String?
         if(clientType == "web") {
             currentRefreshToken = refreshToken
@@ -295,10 +295,10 @@ class AuthController(
                 .sameSite(cookieSameSite)
                 .build()
             response.addHeader("Set-Cookie", refreshCookie.toString())
-            
+
             return Responses.success(message = "AccessToken 재발급에 성공했습니다.", data = null)
         }
-        
+
         //앱
         val resp = RefreshAccessTokenResponseDto.forApp(
             refreshToken = newRefreshToken
@@ -307,4 +307,32 @@ class AuthController(
 
     }
 
+    @Operation(
+        summary = "토큰 인트로스펙트",
+        description = "Authorization 헤더의 JWT에서 사용자 UUID를 추출하여 응답 헤더 x-user-id로 반환합니다."
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(
+                responseCode = "200",
+                description = "인트로스펙트 성공",
+                content = [Content(schema = Schema(implementation = BaseResponse::class))]
+            ),
+            ApiResponse(
+                responseCode = "401",
+                description = "인증되지 않은 사용자",
+                content = [Content(schema = Schema(implementation = FailResponse::class))]
+            )
+        ]
+    )
+    @RateLimit(limit = 60, duration = 1, timeUnit = TimeUnit.MINUTES)
+    @AuthenticatedApi
+    @GetMapping("/api/v1/auth/introspect")
+    fun introspect(
+        response: HttpServletResponse,
+        @AuthenticationPrincipal principalDetails: PrincipalDetails
+    ) {
+        // JWT에서 추출된 opaqueId를 그대로 응답 헤더에 담아 반환
+        response.setHeader("x-user-id", principalDetails.opaqueId)
+    }
 }

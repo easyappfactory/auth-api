@@ -39,9 +39,9 @@ jobs:
 
       - name: Prepare env file
         env:
-          ENV_FILE_CONTENT: ${{ secrets.ENV_FILE }}
+          ENV_FILE_CONTENT: ${{ secrets.AUTH_BE_ENV_FILE }}
         run: |
-          echo "$ENV_FILE_CONTENT" > auth-be.env
+          printf '%s\n' "$ENV_FILE_CONTENT" > auth-be.env
 
       - name: Ensure /env on EC2
         run: |

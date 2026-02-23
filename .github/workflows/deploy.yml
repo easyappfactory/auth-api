@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - main
-      - feat/internal-server-api
+      - dev
 
 jobs:
   build-and-push:

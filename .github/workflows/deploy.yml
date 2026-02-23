@@ -2,65 +2,65 @@ name: Deploy to EC2
 on:
   push:
     branches:
-      - main   # main에 push될 때만 실행
+      - main
+      - feat/internal-server-api
+
 jobs:
-  deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/auth-server:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/auth-server:${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_KEY }}" > ~/.ssh/ec2_key.pem
           chmod 600 ~/.ssh/ec2_key.pem
-      - name: Deploy to EC2
+
+      - name: Prepare env file
+        env:
+          ENV_FILE_CONTENT: ${{ secrets.ENV_FILE }}
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            cd /home/${USER}/app
-            git pull origin main
-            ./gradlew build -x test
-            
-            # systemd 서비스 파일에 모든 환경변수 포함
-            sudo tee /etc/systemd/system/authBE.service > /dev/null << 'SERVICEEOF'
-            [Unit]
-            Description=AuthBE Spring Boot App
-            After=network.target
-            
-            [Service]
-            Type=simple
-            User=ec2-user
-            WorkingDirectory=/home/ec2-user/app
-            ExecStart=/usr/bin/java -jar /home/ec2-user/app/build/libs/demo-0.0.1-SNAPSHOT.jar
-            Environment="DB_NAME=${{ secrets.DB_NAME }}"
-            Environment="DB_USER=${{ secrets.DB_USER }}"
-            Environment="DB_PASSWORD=${{ secrets.DB_PASSWORD }}"
-            Environment="DB_HOST=${{ secrets.DB_HOST }}"
-            Environment="DB_PORT=${{ secrets.DB_PORT }}"
-            Environment="GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}"
-            Environment="GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}"
-            Environment="GOOGLE_REDIRECT_URI=${{ secrets.GOOGLE_REDIRECT_URI }}"
-            Environment="KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }}"
-            Environment="KAKAO_CLIENT_SECRET=${{ secrets.KAKAO_CLIENT_SECRET }}"
-            Environment="KAKAO_REDIRECT_URI=${{ secrets.KAKAO_REDIRECT_URI }}"
-            Environment="NAVER_CLIENT_ID=${{ secrets.NAVER_CLIENT_ID }}"
-            Environment="NAVER_CLIENT_SECRET=${{ secrets.NAVER_CLIENT_SECRET }}"
-            Environment="NAVER_REDIRECT_URI=${{ secrets.NAVER_REDIRECT_URI }}"
-            Environment="JWT_ACCESS_TOKEN_EXPIRATION=${{ secrets.JWT_ACCESS_TOKEN_EXPIRATION }}"
-            Environment="JWT_REFRESH_TOKEN_EXPIRATION=${{ secrets.JWT_REFRESH_TOKEN_EXPIRATION }}"
-            Environment="JWT_SECRET=${{ secrets.JWT_SECRET }}"
-            Environment="MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}"
-            Environment="MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}"
-            Environment="SWAGGER_PATH=${{ secrets.SWAGGER_PATH }}"
-            Environment="USER=${{ secrets.USER }}"
-            Restart=always
-            RestartSec=10
-            
-            [Install]
-            WantedBy=multi-user.target
-          SERVICEEOF
-            
-            sudo systemctl daemon-reload
-            sudo systemctl restart authBE
-            sudo systemctl enable authBE
-          EOF
+          echo "$ENV_FILE_CONTENT" > auth-backend.env
+
+      - name: Ensure /env on EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "sudo mkdir -p /env && sudo chown ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /env"
+
+      - name: Copy env file to EC2
+        run: |
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem auth-backend.env ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/env/auth-backend.env
+
+      - name: Deploy container on EC2
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} " \
+            echo \"$DOCKERHUB_TOKEN\" | docker login -u \"$DOCKERHUB_USERNAME\" --password-stdin 2>/dev/null || true && \
+            docker stop auth-be 2>/dev/null || true && \
+            docker rm auth-be 2>/dev/null || true && \
+            docker pull $DOCKERHUB_USERNAME/auth-server:latest && \
+            docker run -d --restart unless-stopped --name auth-be -p 9000:9000 --env-file /env/auth-backend.env $DOCKERHUB_USERNAME/auth-server:latest \
+          "

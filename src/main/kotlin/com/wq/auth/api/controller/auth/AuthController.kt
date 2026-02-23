@@ -70,7 +70,7 @@ class AuthController(
         ]
     )
     @RateLimit(limit = 5, duration = 15, timeUnit = TimeUnit.MINUTES)
-    @PostMapping("api/v1/auth/members/email-login")
+    @PostMapping("/api/v1/auth/members/email-login")
     @PublicApi
     fun emailLogin(
         response: HttpServletResponse,
@@ -191,7 +191,7 @@ class AuthController(
         ]
     )
     @RateLimit(limit = 10, duration = 1, timeUnit = TimeUnit.MINUTES)
-    @PostMapping("api/v1/auth/members/logout")
+    @PostMapping("/api/v1/auth/members/logout")
     @PublicApi
     fun logout(
         @CookieValue(name = "refreshToken", required = false) refreshToken: String?,
@@ -264,7 +264,7 @@ class AuthController(
         ]
     )
     @RateLimit(limit = 20, duration = 1, timeUnit = TimeUnit.HOURS)
-    @PostMapping("api/v1/auth/members/refresh")
+    @PostMapping("/api/v1/auth/members/refresh")
     @PublicApi
     fun refreshAccessToken(
         @CookieValue(name = "refreshToken", required = false) refreshToken: String,

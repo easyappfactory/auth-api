@@ -57,7 +57,7 @@ class AuthEmailController(
     )
     @RateLimit(limit = 3, duration = 10, timeUnit = TimeUnit.MINUTES)
     @PublicApi
-    @PostMapping("api/v1/auth/email/request")
+    @PostMapping("/api/v1/auth/email/request")
     fun requestCode(@RequestBody req: EmailRequestDto): CommonResponse<Unit> {
         return try {
             authEmailService.sendVerificationCode(req.email)
@@ -86,7 +86,7 @@ class AuthEmailController(
         ]
     )
     @RateLimit(limit = 10, duration = 5, timeUnit = TimeUnit.MINUTES)
-    @PostMapping("api/v1/auth/email/verify")
+    @PostMapping("/api/v1/auth/email/verify")
     fun verifyCode(@RequestBody req: EmailVerifyRequestDto): CommonResponse<Unit> {
         return try {
             authEmailService.verifyCode(req.email, req.verifyCode)

@@ -12,12 +12,12 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
-import org.springframework.web.cors.CorsConfigurationSource
 
 /**
  * Spring Security 설정 클래스
- * 
+ *
  * JWT 기반 인증을 위한 보안 설정을 구성합니다.
+ * CORS는 API Gateway에서만 처리하며, auth-BE에서는 비활성화합니다.
  */
 @Configuration
 @EnableWebSecurity
@@ -25,14 +25,13 @@ import org.springframework.web.cors.CorsConfigurationSource
 class SecurityConfig(
     private val jwtAuthenticationFilter: JwtAuthenticationFilter,
     private val jwtAuthenticationEntryPoint: JwtAuthenticationEntryPoint,
-    private val jwtAccessDeniedHandler: JwtAccessDeniedHandler,
-    private val corsConfigurationSource: CorsConfigurationSource
+    private val jwtAccessDeniedHandler: JwtAccessDeniedHandler
 ) {
 
     @Bean
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
         return http
-            .cors { it.configurationSource(corsConfigurationSource)  } //Security 필터 체인에 CORS 적용
+            .cors { it.disable() }  // CORS는 Gateway에서만 처리
             // CSRF 보호 비활성화 (JWT 사용 시 불필요)
             .csrf { it.disable() }
             
@@ -58,7 +57,7 @@ class SecurityConfig(
                         "/api/v1/auth/members/refresh", //액세스 토큰 재발급
                         "/api/public/**",         // 공개 API
                         "/api/v1/auth/*/login", // 소셜 로그인 API
-                        "api/v1/auth/members/logout", //로그아웃
+                        "/api/v1/auth/members/logout", //로그아웃
                         "/actuator/health",       // 헬스체크
                         "/swagger-ui/**",         // Swagger UI
                         "/v3/api-docs/**",        // OpenAPI 문서

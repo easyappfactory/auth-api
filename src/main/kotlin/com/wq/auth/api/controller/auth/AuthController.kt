@@ -11,8 +11,8 @@ import com.wq.auth.api.domain.email.AuthEmailService
 import com.wq.auth.api.domain.member.MemberService
 import com.wq.auth.security.annotation.AuthenticatedApi
 import com.wq.auth.security.annotation.PublicApi
-import com.wq.auth.security.jwt.JwtProperties
 import com.wq.auth.security.principal.PrincipalDetails
+import com.wq.auth.shared.config.CookieFactory
 import com.wq.auth.shared.rateLimiter.annotation.RateLimit
 import com.wq.auth.web.common.response.CommonResponse
 import io.swagger.v3.oas.annotations.Operation
@@ -23,9 +23,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.servlet.http.HttpServletResponse
 import jakarta.validation.Valid
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpHeaders
-import org.springframework.http.ResponseCookie
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
 import java.util.concurrent.TimeUnit
@@ -36,13 +34,7 @@ class AuthController(
     private val authService: AuthService,
     private val emailService: AuthEmailService,
     private val memberService: MemberService,
-    private val jwtProperties: JwtProperties,
-
-    @Value("\${app.cookie.secure:false}")
-    private val cookieSecure: Boolean,
-
-    @Value("\${app.cookie.same-site:Strict}")
-    private val cookieSameSite: String,
+    private val cookieFactory: CookieFactory,
 ) {
 
     @Operation(
@@ -87,15 +79,10 @@ class AuthController(
         response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer ${accessToken}")
 
         if (clientType == "web") {
-            val refreshCookie = ResponseCookie.from("refreshToken", newRefreshToken)
-                .httpOnly(true)
-                .secure(cookieSecure)
-                .path("/")
-                .maxAge(jwtProperties.refreshExp.toSeconds())
-                .domain(".easyappfactory.com")  // 모든 서브도메인 포함
-                .sameSite("Lax")  //SSO 리다이렉트 시 쿠키 전송을 위해 Lax 권장
-                .build()
-            response.addHeader("Set-Cookie", refreshCookie.toString())
+            val accessTokenCookie = cookieFactory.createAccessTokenCookie(accessToken)
+            val refreshTokenCookie = cookieFactory.createRefreshTokenCookie(newRefreshToken)
+            response.addHeader(HttpHeaders.SET_COOKIE, accessTokenCookie.toString())
+            response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookie.toString())
 
             return CommonResponse.success(message = "로그인에 성공했습니다.", data = null)
         }
@@ -209,15 +196,10 @@ class AuthController(
         authService.logout(currentRefreshToken)
 
         if (clientType == "web") {
-            val refreshCookie = ResponseCookie.from("refreshToken", "")
-                .httpOnly(true)
-                .secure(cookieSecure)
-                .path("/")
-                .maxAge(0)
-                .sameSite(cookieSameSite)
-                .build()
-            response.addHeader("Set-Cookie", refreshCookie.toString())
-
+            val expireAccessTokenCookie = cookieFactory.expireAccessTokenCookie()
+            val expireRefreshTokenCookie = cookieFactory.expireRefreshTokenCookie()
+            response.addHeader(HttpHeaders.SET_COOKIE, expireAccessTokenCookie.toString())
+            response.addHeader(HttpHeaders.SET_COOKIE, expireRefreshTokenCookie.toString())
         }
         //앱
         return CommonResponse.success(message = "로그아웃에 성공했습니다.", data = null)
@@ -285,15 +267,10 @@ class AuthController(
         response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer ${accessToken}")
 
         if (clientType == "web") {
-
-            val refreshCookie = ResponseCookie.from("refreshToken", newRefreshToken)
-                .httpOnly(true)
-                .secure(cookieSecure)
-                .path("/")
-                .maxAge(jwtProperties.refreshExp.toSeconds())
-                .sameSite(cookieSameSite)
-                .build()
-            response.addHeader("Set-Cookie", refreshCookie.toString())
+            val accessTokenCookie = cookieFactory.createAccessTokenCookie(accessToken)
+            val refreshTokenCookie = cookieFactory.createRefreshTokenCookie(newRefreshToken)
+            response.addHeader(HttpHeaders.SET_COOKIE, accessTokenCookie.toString())
+            response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookie.toString())
 
             return CommonResponse.success(message = "AccessToken 재발급에 성공했습니다.", data = null)
         }

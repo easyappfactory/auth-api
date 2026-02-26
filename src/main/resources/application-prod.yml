@@ -26,5 +26,6 @@ logging:
 
 app:
   cookie:
+    domain: ${APP_COOKIE_DOMAIN}
     secure: true
     same-site: Strict

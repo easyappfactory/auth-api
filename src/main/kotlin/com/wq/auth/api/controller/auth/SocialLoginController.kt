@@ -7,6 +7,7 @@ import com.wq.auth.api.domain.auth.SocialLoginService
 import com.wq.auth.security.annotation.AuthenticatedApi
 import com.wq.auth.security.annotation.PublicApi
 import com.wq.auth.security.principal.PrincipalDetails
+import com.wq.auth.shared.config.CookieFactory
 import com.wq.auth.shared.rateLimiter.annotation.RateLimit
 import com.wq.auth.web.common.response.CommonResponse
 import io.swagger.v3.oas.annotations.Operation
@@ -17,12 +18,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.servlet.http.HttpServletResponse
 import jakarta.validation.Valid
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpHeaders
-import org.springframework.http.ResponseCookie
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
-import java.time.Duration
 import java.util.concurrent.TimeUnit
 
 /**
@@ -40,12 +38,7 @@ import java.util.concurrent.TimeUnit
 class SocialLoginController(
     private val socialLoginService: SocialLoginService,
     private val socialLinkService: SocialLinkService,
-
-    @Value("\${app.cookie.secure:false}")
-    private val cookieSecure: Boolean,
-
-    @Value("\${app.cookie.same-site:Strict}")
-    private val cookieSameSite: String
+    private val cookieFactory: CookieFactory,
 ) {
 
     /**
@@ -109,11 +102,7 @@ class SocialLoginController(
     ): CommonResponse<Void> {
         val loginResult = socialLoginService.processSocialLogin(request.toDomain())
 
-        // RefreshToken을 HttpOnly 쿠키에 설정
-        setRefreshTokenCookie(response, loginResult.refreshToken)
-
-        // Authorization 헤더에 AccessToken 설정
-        response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer ${loginResult.accessToken}")
+        setTokenCookies(response, loginResult.accessToken, loginResult.refreshToken)
 
         return CommonResponse.success("소셜 로그인이 완료되었습니다")
     }
@@ -186,11 +175,7 @@ class SocialLoginController(
 
         val loginResult = socialLoginService.processSocialLogin(request.toDomain())
 
-        // RefreshToken을 HttpOnly 쿠키에 설정
-        setRefreshTokenCookie(response, loginResult.refreshToken)
-
-        // Authorization 헤더에 AccessToken 설정
-        response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer ${loginResult.accessToken}")
+        setTokenCookies(response, loginResult.accessToken, loginResult.refreshToken)
 
         return CommonResponse.success("Google 로그인이 완료되었습니다")
     }
@@ -261,11 +246,7 @@ class SocialLoginController(
 
         val loginResult = socialLoginService.processSocialLogin(request.toDomain())
 
-        // RefreshToken을 HttpOnly 쿠키에 설정
-        setRefreshTokenCookie(response, loginResult.refreshToken)
-
-        // Authorization 헤더에 AccessToken 설정
-        response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer ${loginResult.accessToken}")
+        setTokenCookies(response, loginResult.accessToken, loginResult.refreshToken)
 
         return CommonResponse.success("카카오 로그인이 완료되었습니다")
     }
@@ -337,11 +318,7 @@ class SocialLoginController(
     ): CommonResponse<Void> {
         val loginResult = socialLoginService.processSocialLogin(request.toDomain())
 
-        // RefreshToken을 HttpOnly 쿠키에 설정
-        setRefreshTokenCookie(response, loginResult.refreshToken)
-
-        // Authorization 헤더에 AccessToken 설정
-        response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer ${loginResult.accessToken}")
+        setTokenCookies(response, loginResult.accessToken, loginResult.refreshToken)
 
         return CommonResponse.success("Naver 로그인이 완료되었습니다")
     }
@@ -569,27 +546,22 @@ class SocialLoginController(
     }
 
     /**
-     * RefreshToken을 HttpOnly 쿠키로 설정합니다.
-     *
-     * Spring Boot 3.x의 ResponseCookie를 사용하여 현대적이고 안전한 쿠키를 생성합니다.
-     * - HttpOnly: JavaScript 접근 불가 (XSS 방지)
-     * - Secure: HTTPS에서만 전송 (프로덕션 환경)
-     * - SameSite: CSRF 공격 방지
-     * - MaxAge: 14일 (리프레시 토큰 만료 시간과 동일)
+     * AccessToken/RefreshToken을 HttpOnly 쿠키 및 Authorization 헤더로 설정합니다.
      *
      * @param response HTTP 응답 객체
+     * @param accessToken 액세스 토큰
      * @param refreshToken 리프레시 토큰
      */
-    private fun setRefreshTokenCookie(response: HttpServletResponse, refreshToken: String) {
-        val cookie = ResponseCookie.from("refreshToken", refreshToken)
-            .httpOnly(true)                              // XSS 공격 방지
-            .secure(cookieSecure)                                  // 환경별 설정 (개발: false, 프로덕션: true)
-            .path("/")                                      // 모든 경로에서 쿠키 사용 가능
-            .maxAge(Duration.ofDays(14))          // 14일 만료
-            .domain(".easyappfactory.com")  // 모든 서브도메인 포함
-            .sameSite("Lax")  //SSO 리다이렉트 시 쿠키 전송을 위해 Lax 권장                          // CSRF 공격 방지 (Strict/Lax/None)
-            .build()
+    private fun setTokenCookies(
+        response: HttpServletResponse,
+        accessToken: String,
+        refreshToken: String,
+    ) {
+        val accessTokenCookie = cookieFactory.createAccessTokenCookie(accessToken)
+        val refreshTokenCookie = cookieFactory.createRefreshTokenCookie(refreshToken)
 
-        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString())
+        response.addHeader(HttpHeaders.SET_COOKIE, accessTokenCookie.toString())
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookie.toString())
+        response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
     }
 }

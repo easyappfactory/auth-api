@@ -70,9 +70,19 @@ class JwtAuthenticationFilter(
      * @return 추출된 JWT 토큰 문자열, 없으면 null
      */
     private fun extractTokenFromRequest(request: HttpServletRequest): String? {
+        // 1. accessToken HttpOnly 쿠키 우선 사용 (웹 클라이언트)
+        val cookieToken = request.cookies
+            ?.firstOrNull { it.name == "accessToken" }
+            ?.value
+
+        if (!cookieToken.isNullOrBlank()) {
+            return cookieToken
+        }
+
+        // 2. Authorization 헤더(Bearer) fallback (앱 및 과도기 웹 클라이언트)
         val authorizationHeader = request.getHeader(AUTHORIZATION_HEADER)
 
-        return if (authorizationHeader != null && authorizationHeader.startsWith(BEARER_PREFIX)) {
+        return if (!authorizationHeader.isNullOrBlank() && authorizationHeader.startsWith(BEARER_PREFIX)) {
             authorizationHeader.substring(BEARER_PREFIX.length)
         } else {
             null

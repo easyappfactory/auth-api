@@ -33,5 +33,6 @@ logging:
 
 app:
   cookie:
+    domain: ${APP_COOKIE_DOMAIN:localhost}
     secure: false
     same-site: Lax

@@ -84,14 +84,12 @@ class AuthController(
             deviceId = req.deviceId,
         )
 
-        response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer ${accessToken}")
+        val accessTokenCookie = cookieFactory.createAccessTokenCookie(accessToken)
+        val refreshTokenCookie = cookieFactory.createRefreshTokenCookie(newRefreshToken)
+        response.addHeader(HttpHeaders.SET_COOKIE, accessTokenCookie.toString())
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookie.toString())
 
         if (clientType == "web") {
-            val accessTokenCookie = cookieFactory.createAccessTokenCookie(accessToken)
-            val refreshTokenCookie = cookieFactory.createRefreshTokenCookie(newRefreshToken)
-            response.addHeader(HttpHeaders.SET_COOKIE, accessTokenCookie.toString())
-            response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookie.toString())
-
             return CommonResponse.success(message = "로그인에 성공했습니다.", data = null)
         }
 
@@ -127,7 +125,7 @@ class AuthController(
             - 인증 코드 삭제
             
             **인증 요구사항:**
-            - Authorization 헤더에 유효한 JWT 토큰 필요
+            - `accessToken` HttpOnly 쿠키에 유효한 JWT 토큰 필요
             - 토큰은 재발급되지 않으며 기존 토큰 그대로 사용
         """
     )
@@ -229,7 +227,7 @@ class AuthController(
             ),
             ApiResponse(
                 responseCode = "400",
-                description = "잘못된 요청, 인증 토큰이 없음, Authorization 헤더는 'Bearer <token>' 형식이어야 합니다.",
+                description = "잘못된 요청, 인증 토큰이 없음",
                 content = [Content(
                     mediaType = "application/json",
                     schema = Schema(implementation = CommonResponse::class)
@@ -257,29 +255,33 @@ class AuthController(
     @PostMapping("/api/v1/auth/members/refresh")
     @PublicApi
     fun refreshAccessToken(
-        @CookieValue(name = "refreshToken", required = false) refreshToken: String,
+        request: HttpServletRequest, // 헤더/쿠키에서 이전 AT를 읽기 위함
+        @CookieValue(name = "refreshToken", required = false) refreshToken: String?,
         @RequestHeader("X-Client-Type") clientType: String,
         response: HttpServletResponse,
         @RequestBody req: RefreshAccessTokenRequestDto?,
     ): CommonResponse<RefreshAccessTokenResponseDto> {
 
-        val currentRefreshToken : String?
-        if(clientType == "web") {
-            currentRefreshToken = refreshToken
+        val currentRefreshToken : String? = if(clientType == "web") {
+            refreshToken
         } else {
-            currentRefreshToken = req?.refreshToken
+            req?.refreshToken
         }
+
+        if (currentRefreshToken.isNullOrBlank()) {
+            throw JwtException(JwtExceptionCode.TOKEN_MISSING)
+        }
+
         val (accessToken, newRefreshToken) = authService.refreshAccessToken(
-            currentRefreshToken!!, req?.deviceId,
+            currentRefreshToken, req?.deviceId
         )
-        response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer ${accessToken}")
+
+        val accessTokenCookie = cookieFactory.createAccessTokenCookie(accessToken)
+        val refreshTokenCookie = cookieFactory.createRefreshTokenCookie(newRefreshToken)
+        response.addHeader(HttpHeaders.SET_COOKIE, accessTokenCookie.toString())
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookie.toString())
 
         if (clientType == "web") {
-            val accessTokenCookie = cookieFactory.createAccessTokenCookie(accessToken)
-            val refreshTokenCookie = cookieFactory.createRefreshTokenCookie(newRefreshToken)
-            response.addHeader(HttpHeaders.SET_COOKIE, accessTokenCookie.toString())
-            response.addHeader(HttpHeaders.SET_COOKIE, refreshTokenCookie.toString())
-
             return CommonResponse.success(message = "AccessToken 재발급에 성공했습니다.", data = null)
         }
 
@@ -297,10 +299,14 @@ class AuthController(
             API Gateway 연동용 엔드포인트입니다. 요청에 포함된 Access Token을 검증하고, 성공 시 응답 헤더에 사용자 정보를 담아 반환합니다.
             
             **토큰 탐색 우선순위:**
-            1. `accessToken` HttpOnly 쿠키 (웹 클라이언트 전용)
-               - 쿠키가 존재하면 Authorization 헤더는 완전히 무시됩니다.
+            1. `accessToken` HttpOnly 쿠키
                - 쿠키 값이 비어있으면 401을 반환합니다.
-            2. `Authorization: Bearer <token>` 헤더 (앱 클라이언트 / 쿠키가 없을 때만 사용)
+            2. `Authorization: Bearer <token>` 헤더 (쿠키가 없을 때만 사용)
+            
+            **토큰 반환 방식:**
+            - Access Token: HttpOnly 쿠키(`accessToken`)
+            - Refresh Token: HttpOnly 쿠키(`refreshToken`)
+            - 기존 Authorization 헤더는 더 이상 사용하지 않습니다.
             
             **사일런트 리프레시 (Silent Refresh):**
             - Access Token이 만료되었거나 남은 유효 시간이 5분(300초) 미만이면 `refreshToken` 쿠키로 자동 재발급을 시도합니다.
@@ -309,14 +315,13 @@ class AuthController(
             
             **성공 응답 헤더:**
             - `X-User-Id`: 사용자 UUID (opaqueId)
-            - `X-Auth-Provider`: 대표 연동 제공자 (EMAIL, GOOGLE, KAKAO, NAVER 중 하나, 연동된 경우)
         """
     )
     @ApiResponses(
         value = [
             ApiResponse(
                 responseCode = "200",
-                description = "인트로스펙트 성공 (X-User-Id, X-Auth-Provider 헤더 포함). AT가 임박한 경우 Set-Cookie로 새 토큰도 포함됩니다.",
+                description = "인트로스펙트 성공 (X-User-Id 헤더 포함). AT가 임박한 경우 Set-Cookie로 새 토큰도 포함됩니다.",
                 content = [Content(schema = Schema(implementation = CommonResponse::class))]
             ),
             ApiResponse(
@@ -350,7 +355,7 @@ class AuthController(
             }
 
             try {
-                // 만료된 AT에서도 claims를 읽어 deviceId를 전달합니다.
+                // 만료된 AT에서도 claims를 읽어 deviceId를 추출합니다.
                 val claims = jwtProvider.getClaimsEvenIfExpired(token)
                 val deviceId = claims["deviceId"] as? String
 
@@ -372,9 +377,6 @@ class AuthController(
         }
 
         response.setHeader("X-User-Id", opaqueId)
-        memberService.getPrimaryProvider(opaqueId)?.let { provider ->
-            response.setHeader("X-Auth-Provider", provider.name)
-        }
     }
 
     /**

@@ -9,18 +9,24 @@ import com.wq.auth.api.controller.auth.response.RefreshAccessTokenResponseDto
 import com.wq.auth.api.domain.auth.AuthService
 import com.wq.auth.api.domain.email.AuthEmailService
 import com.wq.auth.api.domain.member.MemberService
+import com.wq.auth.security.JwtAuthenticationFilter
 import com.wq.auth.security.annotation.AuthenticatedApi
 import com.wq.auth.security.annotation.PublicApi
+import com.wq.auth.security.jwt.JwtProvider
+import com.wq.auth.security.jwt.error.JwtException
+import com.wq.auth.security.jwt.error.JwtExceptionCode
 import com.wq.auth.security.principal.PrincipalDetails
 import com.wq.auth.shared.config.CookieFactory
 import com.wq.auth.shared.rateLimiter.annotation.RateLimit
 import com.wq.auth.web.common.response.CommonResponse
+import io.github.oshai.kotlinlogging.KotlinLogging
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
+import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import jakarta.validation.Valid
 import org.springframework.http.HttpHeaders
@@ -35,7 +41,9 @@ class AuthController(
     private val emailService: AuthEmailService,
     private val memberService: MemberService,
     private val cookieFactory: CookieFactory,
+    private val jwtProvider: JwtProvider,
 ) {
+    private val log = KotlinLogging.logger {}
 
     @Operation(
         summary = "이메일 로그인",
@@ -284,37 +292,96 @@ class AuthController(
     }
 
     @Operation(
-        summary = "토큰 인트로스펙트",
+        summary = "토큰 introspect",
         description = """
-            API Gateway 연동용. Authorization 헤더의 JWT를 검증하고, 성공 시 응답 헤더에 다음을 담아 반환합니다.
-            - X-User-Id: 사용자 UUID (opaqueId)
-            - X-Auth-Provider: 대표 연동 제공자 (EMAIL, GOOGLE, KAKAO, NAVER 중 하나, 연동된 경우)
+            API Gateway 연동용 엔드포인트입니다. 요청에 포함된 Access Token을 검증하고, 성공 시 응답 헤더에 사용자 정보를 담아 반환합니다.
+            
+            **토큰 탐색 우선순위:**
+            1. `accessToken` HttpOnly 쿠키 (웹 클라이언트 전용)
+               - 쿠키가 존재하면 Authorization 헤더는 완전히 무시됩니다.
+               - 쿠키 값이 비어있으면 401을 반환합니다.
+            2. `Authorization: Bearer <token>` 헤더 (앱 클라이언트 / 쿠키가 없을 때만 사용)
+            
+            **사일런트 리프레시 (Silent Refresh):**
+            - Access Token이 만료되었거나 남은 유효 시간이 5분(300초) 미만이면 `refreshToken` 쿠키로 자동 재발급을 시도합니다.
+            - 재발급 성공 시 응답의 `Set-Cookie`로 새 토큰을 내려주며 FE/사용자 개입이 불필요합니다.
+            - 재발급 실패(리프레시 토큰 만료·오류) 시 기존 쿠키를 모두 삭제하고 401을 반환합니다.
+            
+            **성공 응답 헤더:**
+            - `X-User-Id`: 사용자 UUID (opaqueId)
+            - `X-Auth-Provider`: 대표 연동 제공자 (EMAIL, GOOGLE, KAKAO, NAVER 중 하나, 연동된 경우)
         """
     )
     @ApiResponses(
         value = [
             ApiResponse(
                 responseCode = "200",
-                description = "인트로스펙트 성공 (X-User-Id, X-Auth-Provider 헤더 포함)",
+                description = "인트로스펙트 성공 (X-User-Id, X-Auth-Provider 헤더 포함). AT가 임박한 경우 Set-Cookie로 새 토큰도 포함됩니다.",
                 content = [Content(schema = Schema(implementation = CommonResponse::class))]
             ),
             ApiResponse(
                 responseCode = "401",
-                description = "인증되지 않은 사용자",
+                description = "토큰 없음, 빈 쿠키, 리프레시 토큰 만료·오류 등 인증 실패. 쿠키가 존재하던 경우 해당 쿠키는 제거됩니다.",
                 content = [Content(schema = Schema(implementation = CommonResponse::class))]
             )
         ]
     )
     @RateLimit(limit = 60, duration = 1, timeUnit = TimeUnit.MINUTES)
-    @AuthenticatedApi
+    @PublicApi
     @GetMapping("/api/v1/auth/introspect")
     fun introspect(
+        request: HttpServletRequest,
         response: HttpServletResponse,
-        @AuthenticationPrincipal principalDetails: PrincipalDetails
     ) {
-        response.setHeader("X-User-Id", principalDetails.opaqueId)
-        memberService.getPrimaryProvider(principalDetails.opaqueId)?.let { provider ->
+        val token = JwtAuthenticationFilter.extractToken(request)
+        // 쿠키·헤더 모두 없거나, accessToken 쿠키가 빈 값인 경우 401
+        if (token.isNullOrBlank()) {
+            throw JwtException(JwtExceptionCode.TOKEN_MISSING)
+        }
+
+        // AT가 만료(-1)되었거나 남은 시간이 5분(300초) 미만이면 사일런트 리프레시 시도
+        val remainingSeconds = jwtProvider.getRemainingTimeSeconds(token)
+        val opaqueId: String = if (remainingSeconds < 300) {
+            val refreshToken = request.cookies?.firstOrNull { it.name == "refreshToken" }?.value
+
+            if (refreshToken.isNullOrBlank()) {
+                clearAuthCookies(response)
+                throw JwtException(JwtExceptionCode.TOKEN_MISSING)
+            }
+
+            try {
+                // 만료된 AT에서도 claims를 읽어 deviceId를 전달합니다.
+                val claims = jwtProvider.getClaimsEvenIfExpired(token)
+                val deviceId = claims["deviceId"] as? String
+
+                val tokenResult = authService.refreshAccessToken(refreshToken, deviceId)
+
+                response.addHeader(HttpHeaders.SET_COOKIE, cookieFactory.createAccessTokenCookie(tokenResult.accessToken).toString())
+                response.addHeader(HttpHeaders.SET_COOKIE, cookieFactory.createRefreshTokenCookie(tokenResult.refreshToken).toString())
+
+                log.debug { "사일런트 리프레시 성공 (remainingSeconds=$remainingSeconds)" }
+
+                jwtProvider.getOpaqueId(tokenResult.accessToken)
+            } catch (e: Exception) {
+                log.warn { "사일런트 리프레시 실패: ${e.message}" }
+                clearAuthCookies(response)
+                throw JwtException(JwtExceptionCode.EXPIRED)
+            }
+        } else {
+            jwtProvider.getOpaqueId(token)
+        }
+
+        response.setHeader("X-User-Id", opaqueId)
+        memberService.getPrimaryProvider(opaqueId)?.let { provider ->
             response.setHeader("X-Auth-Provider", provider.name)
         }
+    }
+
+    /**
+     * accessToken, refreshToken HttpOnly 쿠키를 즉시 만료시킵니다.
+     */
+    private fun clearAuthCookies(response: HttpServletResponse) {
+        response.addHeader(HttpHeaders.SET_COOKIE, cookieFactory.expireAccessTokenCookie().toString())
+        response.addHeader(HttpHeaders.SET_COOKIE, cookieFactory.expireRefreshTokenCookie().toString())
     }
 }

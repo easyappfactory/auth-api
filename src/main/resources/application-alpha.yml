@@ -1,0 +1,20 @@
+spring:
+  config:
+    activate:
+      on-profile: alpha
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+logging:
+  level:
+    org.hibernate.SQL: info
+    org.springframework.orm.jpa: info
+
+app:
+  cookie:
+    domain: ${APP_COOKIE_DOMAIN}
+    secure: true
+    same-site: Strict

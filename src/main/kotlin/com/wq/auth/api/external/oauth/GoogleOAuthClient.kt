@@ -104,7 +104,7 @@ class GoogleOAuthClient(
         return OAuthUser(
             providerId = googleUserInfo.getProviderId(),
             email = googleUserInfo.email,
-            verifiedEmail = googleUserInfo.verifiedEmail,
+            verifiedEmail = googleUserInfo.verifiedEmail ?: true,
             name = googleUserInfo.name,
             givenName = googleUserInfo.givenName,
             providerType = ProviderType.GOOGLE

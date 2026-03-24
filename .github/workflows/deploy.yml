@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'alpha' }}
     env:
-      PROJECT_ROOT: '~/easyappfactory-demo'
+      PROJECT_ROOT: '/home/ubuntu/easyappfactory-demo'
 
     steps:
       - name: Checkout

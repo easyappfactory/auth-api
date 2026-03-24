@@ -1,16 +1,24 @@
 name: Deploy (auth-BE)
 
+# ---------------------------------------------------------------------------
+# EC2 원격 경로 (아래 deploy job 의 env.PROJECT_ROOT 만 수정)
+#   PROJECT_ROOT … 배포 기준 루트. 예: ~, ~/myapp (끝 슬래시 없음)
+#   환경변수 파일은 항상 {PROJECT_ROOT}/env/ 아래 (이름 고정: env)
+#   배포는 EC2의 PROJECT_ROOT 에서 docker-compose (서비스명: auth-be, compose.yml 과 일치해야 함)
+# ---------------------------------------------------------------------------
+
 on:
   push:
     branches:
       - main
       - dev
-      - deploy/alpha
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'alpha' }}
+    env:
+      PROJECT_ROOT: '~/easyappfactory-demo'
 
     steps:
       - name: Checkout
@@ -64,26 +72,19 @@ jobs:
       - name: Create env file and copy to EC2
         run: |
           printf '%s\n' "${{ secrets.AUTH_BE_ENV_FILE }}" > auth-be.env
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} 'mkdir -p ~/env'
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem auth-be.env ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/env/auth-be.env
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} 'mkdir -p ${{ env.PROJECT_ROOT }}/env'
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem auth-be.env ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.PROJECT_ROOT }}/env/auth-be.env
 
       - name: Deploy to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
           set -e
-          echo '${{ secrets.DOCKERHUB_TOKEN }}' | docker login -u '${{ secrets.DOCKERHUB_USERNAME }}' --password-stdin
-
-          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/auth-server:${{ env.IMAGE_TAG }}
-
+          export PATH="/usr/bin:/usr/local/bin:$PATH"
+          export SPRING_PROFILES_ACTIVE="${{ env.SPRING_PROFILE }}"
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          cd ${{ env.PROJECT_ROOT }}
           docker rm -f auth-be || true
-
-          docker run -d \
-            --name auth-be \
-            --restart unless-stopped \
-            --network app-network \
-            --env-file ~/env/auth-be.env \
-            -e SPRING_PROFILES_ACTIVE=${{ env.SPRING_PROFILE }} \
-            ${{ secrets.DOCKERHUB_USERNAME }}/auth-server:${{ env.IMAGE_TAG }}
-
+          docker-compose pull auth-be
+          docker-compose up -d --no-deps auth-be
           docker logout
-          "
+          '

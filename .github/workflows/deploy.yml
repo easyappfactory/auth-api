@@ -80,6 +80,8 @@ jobs:
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
           set -e
           export PATH="/usr/bin:/usr/local/bin:$PATH"
+          export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+          export IMAGE_TAG="${{ env.IMAGE_TAG }}"
           export SPRING_PROFILES_ACTIVE="${{ env.SPRING_PROFILE }}"
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
           cd ${{ env.PROJECT_ROOT }}

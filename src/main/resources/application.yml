@@ -52,3 +52,9 @@ app:
     default-zone: ${APP_DEFAULT_ZONE:Asia/Seoul}
   cookie:
     domain: ${APP_COOKIE_DOMAIN:localhost}
+
+project:
+  logging:
+    enabled: true
+    env: ${SPRING_PROFILES_ACTIVE:local}
+    internal-secret: ${INTERNAL_LOGGING_SECRET:default-secret}

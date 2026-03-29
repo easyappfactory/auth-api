@@ -1,7 +1,7 @@
 plugins {
-    kotlin("jvm") version "2.3.20"
-	kotlin("plugin.spring") version "2.3.20"
-	kotlin("plugin.jpa") version "2.3.20"
+    kotlin("jvm") version "2.3.0"
+	kotlin("plugin.spring") version "2.3.0"
+	kotlin("plugin.jpa") version "2.3.0"
 
 	id("org.springframework.boot") version "4.0.4"
 	id("io.spring.dependency-management") version "1.1.7"
@@ -12,7 +12,7 @@ version = "0.0.1-SNAPSHOT"
 
 java {
 	toolchain {
-		languageVersion = JavaLanguageVersion.of(21)
+		languageVersion = JavaLanguageVersion.of(25)
 	}
 }
 
@@ -22,17 +22,15 @@ configurations {
 	}
 }
 
-repositories {
-	mavenCentral()
-}
-
-
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-mail")
 	implementation("org.springframework.boot:spring-boot-starter-webflux")
+
+	// 로깅 스타터 (GitHub Packages)
+	implementation("com.easyapp.factory:spring-logging-starter:0.0.1-SNAPSHOT")
 
 	// Kotlin 관련 (Kotlin 2.3 대응)
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
@@ -46,7 +44,7 @@ dependencies {
 	implementation("me.paulschwarz:springboot4-dotenv:5.1.0")
 
 	// API Documentation (Spring Boot 4 대응을 위해 3.x 버전 사용)
-	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.0")
+	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2")
 
 	// OAuth & Google API
 	implementation("com.google.api-client:google-api-client:2.7.0")

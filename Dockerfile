@@ -1,4 +1,10 @@
-FROM eclipse-temurin:21-jdk-alpine AS builder
+# ================================
+# Stage 1: Build
+# ================================
+FROM eclipse-temurin:25-jdk-alpine AS builder
+
+# GITHUB_ACTOR는 빌드 시점에 일반 ARG로 넘겨받습니다.
+ARG GITHUB_ACTOR=easyappfactory
 
 WORKDIR /workspace
 
@@ -7,9 +13,13 @@ COPY gradle gradle
 COPY gradlew build.gradle.kts settings.gradle.kts ./
 COPY src src
 
-RUN ./gradlew bootJar --no-daemon -x test
+# mount 기능을 사용하여 빌드 시점에만 GITHUB_TOKEN을 안전하게 사용합니다.
+RUN --mount=type=secret,id=GITHUB_TOKEN \
+    GITHUB_TOKEN=$(cat /run/secrets/GITHUB_TOKEN) \
+    GITHUB_ACTOR=${GITHUB_ACTOR} \
+    ./gradlew bootJar --no-daemon -x test
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 
 RUN adduser -D -h /app appuser
 

@@ -45,6 +45,10 @@ jobs:
         with:
           context: .
           push: true
+          secrets: |
+            "GITHUB_TOKEN=${{ secrets.GIT_TOKEN }}"
+          build-args: |
+            GITHUB_ACTOR=${{ github.actor }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/auth-server:${{ env.IMAGE_TAG }}
             ${{ secrets.DOCKERHUB_USERNAME }}/auth-server:${{ github.sha }}

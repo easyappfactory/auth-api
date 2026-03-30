@@ -2,6 +2,7 @@
 <configuration>
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
+    <!-- Alloy가 기대하는 'service'와 'env' 필드명을 컨텍스트에 직접 등록 -->
     <springProperty scope="context" name="springAppName" source="spring.application.name"/>
     <property scope="context" name="service" value="${SERVICE_NAME:-${springAppName}}"/>
     <springProperty scope="context" name="env" source="project.logging.env" defaultValue="local"/>
@@ -17,7 +18,7 @@
                 <threadName/>
                 <loggerName/>
                 <message/>
-                <context/>
+                <context/> <!-- 여기서 service, env가 자동으로 포함됨 -->
                 <pattern>
                     <pattern>
                         {
@@ -34,4 +35,14 @@
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
     </root>
+
+    <!-- local, alpha 환경에서만 Hibernate SQL 로깅 (JSON 한 줄) -->
+    <springProfile name="local, alpha">
+        <logger name="org.hibernate.SQL" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+        <logger name="org.hibernate.orm.jdbc.bind" level="TRACE" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+    </springProfile>
 </configuration>

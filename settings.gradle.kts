@@ -1,4 +1,4 @@
-rootProject.name = "auth-be"
+rootProject.name = "auth-api"
 
 dependencyResolutionManagement {
     repositories {

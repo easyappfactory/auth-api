@@ -21,9 +21,12 @@ class GlobalExceptionHandler {
 
     @ExceptionHandler(ApiException::class)
     fun handleApiException(e: ApiException): ResponseEntity<CommonResponse<Unit>> {
-
-        log.error(e.extractExceptionLocation() + e.message)
         val status = HttpStatus.valueOf(e.code.status)
+        if (status.is4xxClientError) {
+            log.info("[{}] {} - {}", status.value(), e.code, e.message)
+        } else {
+            log.error(e.extractExceptionLocation() + e.message)
+        }
         val body = CommonResponse.fail(e.code)
         return ResponseEntity.status(status).body(body)
     }

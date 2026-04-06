@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: auth-BE
+    name: auth-api
 
   profiles:
     group:
